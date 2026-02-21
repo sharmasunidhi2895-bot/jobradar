@@ -7,11 +7,24 @@ from pypdf import PdfReader
 
 
 
+if 'resume_text' not in st.session_state:
+    st.session_state['resume_text'] = ''
+
+if 'job_results' not in st.session_state:
+    st.session_state['job_results'] = []
+if 'search_meta' not in st.session_state:
+    st.session_state['search_meta'] = {}
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def extract_text_from_pdf(uploaded_file) -> str:
-    """Extract selectable text from a PDF (no API). Returns empty string if none."""
+    """Extract selectable text from a PDF (no API).
+
+    IMPORTANT: Use uploaded_file.getvalue() to avoid consuming the stream across Streamlit reruns.
+    Returns empty string if none.
+    """
     try:
-        reader = PdfReader(io.BytesIO(uploaded_file.read()))
+        pdf_bytes = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
+        reader = PdfReader(io.BytesIO(pdf_bytes))
         parts = []
         for page in reader.pages:
             try:
@@ -151,6 +164,9 @@ with st.expander("📄 Upload Resume for AI Match % Scoring (optional)"):
     elif resume_text_input.strip():
         resume_text = resume_text_input.strip()
         st.success(f"✓ Resume text ready — {len(resume_text)} characters")
+# Persist resume text across reruns
+st.session_state['resume_text'] = resume_text
+
 
 st.divider()
 
@@ -369,7 +385,32 @@ if search_clicked:
         date_label = {"today":"last 24 hours","3days":"last 3 days","week":"this week","month":"this month"}.get(date_posted,"")
         st.warning(f"No jobs found{' posted in the '+date_label if date_label else ''}. Try 'Any time' or broader keywords.")
         st.stop()
+    # Persist results so they don't disappear when you click buttons (Streamlit reruns).
+    st.session_state['job_results'] = unique
+    st.session_state['search_meta'] = {
+        'companies': companies,
+        'keywords': keywords,
+        'location': location,
+        'date_posted': date_posted,
+        'employment_type': emp_type,
+        'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+    }
 
+
+# ── Render persisted results ─────────────────────────────────────────────────
+unique = st.session_state.get('job_results', [])
+meta = st.session_state.get('search_meta', {})
+if unique:
+    with st.expander('Last search details', expanded=False):
+        st.write(meta)
+    if st.button('🧹 Clear results', use_container_width=True):
+        st.session_state['job_results'] = []
+        st.session_state['search_meta'] = {}
+        # Also clear cached match results
+        for k in list(st.session_state.keys()):
+            if str(k).startswith('match_'):
+                del st.session_state[k]
+        st.rerun()
     # ── Stats ──────────────────────────────────────────────────────────────────
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
@@ -456,3 +497,6 @@ if search_clicked:
                         st.markdown(f"*{result['verdict']}*")
 
         st.markdown("")
+else:
+    st.info('Run a search to see results here. Your results will stay visible when you click Match Resume.')
+
